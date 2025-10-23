@@ -45,5 +45,5 @@ app.post("/api/cart/apply-coupon", async (req, res) => {
 });
 
 const PORT = Number(process.env.PORT || 8080);
-app.listen(PORT, "0.0.0.0", () => console.log(`🧩 <nombre-servicio> en :${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`🧩 cart-service en :${PORT}`));
 
