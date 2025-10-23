@@ -14,7 +14,7 @@ RUN npm install --production
 COPY . .
 
 # Expone el puerto que usa el servicio
-EXPOSE 4010
+EXPOSE 8080
 
 # Comando para ejecutar el servidor
 CMD ["node", "server.js"]
