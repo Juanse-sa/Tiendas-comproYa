@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Gateway para ComproYa con login local y OAuth2",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
