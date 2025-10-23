@@ -1,24 +1,22 @@
-# Usa una imagen oficial de Node.js
-FROM node:18-alpine
+# Usar Node.js 18
+FROM node:18
 
-# Crea el directorio de la app
-WORKDIR /usr/src/app
+# Crear directorio de la app
+WORKDIR /app
 
-# Copia los archivos de dependencias primero
+# Copiar package.json y package-lock.json si existe
 COPY package*.json ./
 
-# Instala solo las dependencias necesarias
-RUN npm install --production
+# Instalar dependencias
+RUN npm install --omit=dev
 
-# Copia el resto del código
+# Copiar todo el código
 COPY . .
 
-# Expone el puerto 8080 (Cloud Run lo requiere)
+# Exponer el puerto que usará Cloud Run
 EXPOSE 8080
 
-# Variable de entorno por defecto (puedes cambiarla en Cloud Run)
-ENV PORT=8080
+# Comando de inicio (usar el puerto asignado por Cloud Run)
+CMD ["sh", "-c", "node server.js"]
 
-# Comando de inicio
-CMD ["node", "server.js"]
 
