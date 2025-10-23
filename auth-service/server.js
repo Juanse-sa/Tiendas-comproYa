@@ -154,7 +154,7 @@ app.get("/api/auth/me", mustAuth, async (req, res) => {
 });
 
 // ====== Start ======
-const PORT = Number(process.env.AUTH_PORT || 8080);
+const PORT = process.env.PORT || 8080;
 (async () => {
   await sequelize.authenticate();
   await sequelize.sync();
