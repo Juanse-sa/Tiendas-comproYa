@@ -33,5 +33,5 @@ app.post("/api/payments/confirm", (req, res) => {
   res.json(intent);
 });
 
-const PORT = Number(process.env.PAYMENTS_PORT || 4005);
+const PORT = Number(process.env.PAYMENTS_PORT || 8080);
 app.listen(PORT, () => console.log(`💳 payments-adapter en :${PORT}`));
