@@ -63,7 +63,7 @@ app.post("/api/payments/confirm", (req, res) => {
 
 // ===== Start =====
 // Cloud Run valida que escuches en process.env.PORT y host 0.0.0.0
-onst PORT = process.env.PORT || 8080; 
+const PORT = process.env.PORT || 8080; 
 
 app.listen(PORT, "0.0.0.0", () => { // Express es lo suficientemente inteligente para manejar PORT como string o number aquí
   console.log(`🧩 payments-adapter escuchando en :${PORT}`);
