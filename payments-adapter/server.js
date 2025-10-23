@@ -33,5 +33,7 @@ app.post("/api/payments/confirm", (req, res) => {
   res.json(intent);
 });
 
-const PORT = Number(process.env.PAYMENTS_PORT || 8080);
-app.listen(PORT, () => console.log(`💳 payments-adapter en :${PORT}`));
+// 🔧 Cloud Run requiere que escuches en process.env.PORT
+const PORT = Number(process.env.PORT || 8080);
+app.listen(PORT, () => console.log(`💳 payments-adapter escuchando en el puerto ${PORT}`));
+
