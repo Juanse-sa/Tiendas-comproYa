@@ -13,9 +13,9 @@ RUN npm install --omit=dev
 # Copiar el resto del código
 COPY . .
 
-# Configurar variables de entorno y puerto
-
+# Cloud Run define PORT=8080 automáticamente
+ENV PORT=8080
 EXPOSE 8080
 
 # Comando de inicio
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
