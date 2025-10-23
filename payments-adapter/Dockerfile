@@ -14,8 +14,7 @@ RUN npm install --omit=dev
 COPY . .
 
 # Configurar variables de entorno y puerto
-ENV PORT=8080
-ENV PAYMENTS_PORT=8080
+
 EXPOSE 8080
 
 # Comando de inicio
