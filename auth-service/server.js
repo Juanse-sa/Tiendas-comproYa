@@ -21,8 +21,7 @@ const app = express();
 // ============ CORS ============
 const ALLOWED_ORIGINS = [
   "https://storage.googleapis.com",
-  // Agrega otros dominios válidos de tu frontend aquí:
-  // "https://tudominio.com"
+  // "https://tu-dominio.com",
 ];
 
 app.use((req, res, next) => {
@@ -33,7 +32,7 @@ app.use((req, res, next) => {
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // para health/curl
+      if (!origin) return cb(null, true); // health/curl sin Origin
       return cb(null, ALLOWED_ORIGINS.includes(origin));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -43,7 +42,6 @@ app.use(
   })
 );
 
-// ============ BODY & LOGS ============
 app.use(express.json());
 app.use(morgan("dev"));
 
@@ -51,22 +49,15 @@ app.use(morgan("dev"));
 const usingSocket = !!process.env.INSTANCE_UNIX_SOCKET;
 
 const sequelize = new Sequelize(
-  process.env.MYSQL_DATABASE,
-  process.env.MYSQL_USER,
-  process.env.MYSQL_PASSWORD,
+  process.env.MYSQL_DATABASE,   // p.ej. "proyecto"
+  process.env.MYSQL_USER,       // p.ej. "root"
+  process.env.MYSQL_PASSWORD,   // p.ej. "5n$+|jd0+\\m%yZeU"
   {
     dialect: "mysql",
     logging: false,
     ...(usingSocket
-      ? {
-          dialectOptions: {
-            socketPath: process.env.INSTANCE_UNIX_SOCKET,
-          },
-        }
-      : {
-          host: process.env.MYSQL_HOST || "127.0.0.1",
-          port: Number(process.env.MYSQL_PORT || 3306),
-        }),
+      ? { dialectOptions: { socketPath: process.env.INSTANCE_UNIX_SOCKET } }
+      : { host: process.env.MYSQL_HOST || "127.0.0.1", port: Number(process.env.MYSQL_PORT || 3306) }),
   }
 );
 
@@ -109,22 +100,18 @@ app.get("/api/auth/health", (_req, res) => res.json({ ok: true, via: "/api/auth/
 
 // ============ ME ============
 app.get("/me", mustAuth, async (req, res) => {
-  const u = await User.findByPk(req.user.sub, {
-    attributes: ["id", "name", "phone", "email", "provider"],
-  });
+  const u = await User.findByPk(req.user.sub, { attributes: ["id", "name", "phone", "email", "provider"] });
   if (!u) return res.status(404).json({ ok: false, error: "user_not_found" });
   res.json({ ok: true, user: u, via: "/me" });
 });
 
 app.get("/api/auth/me", mustAuth, async (req, res) => {
-  const u = await User.findByPk(req.user.sub, {
-    attributes: ["id", "name", "phone", "email", "provider"],
-  });
+  const u = await User.findByPk(req.user.sub, { attributes: ["id", "name", "phone", "email", "provider"] });
   if (!u) return res.status(404).json({ ok: false, error: "user_not_found" });
   res.json({ ok: true, user: u, via: "/api/auth/me" });
 });
 
-// ============ Registro ============
+// ============ Registro/Login ============
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { name, phone, email, password } = req.body || {};
@@ -149,7 +136,6 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-// ============ Login ============
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -206,19 +192,26 @@ app.post("/api/auth/google", async (req, res) => {
 
 // ============ Start ============
 const PORT = Number(process.env.PORT || 8080);
-app.listen(PORT, "0.0.0.0", async () => {
-  console.log(`🧩 auth-service escuchando en :${PORT}`);
+
+// Arranque ordenado: primero DB (authenticate + sync), luego listen
+(async () => {
   try {
     await sequelize.authenticate();
     console.log("✅ DB conectada");
-    if (process.env.SYNC_SCHEMA !== "false") {
-      await sequelize.sync();
-      console.log("✅ Sequelize sync OK");
-    }
+
+    // crea tablas si no existen (no destruye datos). Para dev puedes usar { alter: true }.
+    await sequelize.sync();
+    console.log("✅ Sequelize sync OK");
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🧩 auth-service escuchando en :${PORT}`);
+    });
   } catch (err) {
     console.error("❌ Error inicializando DB:", err?.message || err);
+    // En Cloud Run conviene salir para que se reinicie el contenedor si no arranca bien
+    process.exit(1);
   }
-});
+})();
 
 process.on("SIGTERM", () => {
   console.log("Recibido SIGTERM, cerrando...");
