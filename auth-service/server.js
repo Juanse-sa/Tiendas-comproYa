@@ -19,51 +19,56 @@ dotenv.config({ path: path.resolve(__dirname, ".env") });
 const app = express();
 
 // ============ CORS (antes de rutas) ============
+// IMPORTANTE: origin es solo esquema+host (sin paths)
 const ALLOWED_ORIGINS = [
   "https://storage.googleapis.com",
-  // agrega otros dominios de front si los tienes, solo host (sin path):
-  // "https://tu-dominio.com"
+  // agrega aquí otros orígenes válidos de tu front si los tuvieras:
+  // "https://tu-dominio.com",
 ];
 
-// marca el servicio (útil en logs/inspección)
 app.use((req, res, next) => {
   res.setHeader("X-Service", "auth-service");
   next();
 });
 
-// configuración CORS global
-const corsOptions = {
-  origin: (origin, cb) => {
-    // sin Origin (curl/health) -> permitir
-    if (!origin) return cb(null, true);
-    return cb(null, ALLOWED_ORIGINS.includes(origin));
-  },
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: false,
-  maxAge: 86400, // cachea preflight 1 día
-};
-
-// Aplica CORS a TODAS las rutas y métodos, incluido OPTIONS
-app.use(cors(corsOptions));
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // curl/health sin Origin
+      return cb(null, ALLOWED_ORIGINS.includes(origin));
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: false,
+    maxAge: 86400,
+  })
+);
 
 // ============ BODY & LOGS ============
 app.use(express.json());
 app.use(morgan("dev"));
 
-// ============ DB ============
+// ============ DB (Cloud SQL socket si existe) ============
+// Define INSTANCE_UNIX_SOCKET="/cloudsql/PROJECT:REGION:INSTANCE" en Cloud Run
+const usingSocket = !!process.env.INSTANCE_UNIX_SOCKET;
+
 const sequelize = new Sequelize(
   process.env.MYSQL_DATABASE,
   process.env.MYSQL_USER,
   process.env.MYSQL_PASSWORD,
   {
-    host: process.env.MYSQL_HOST || "127.0.0.1",
-    port: Number(process.env.MYSQL_PORT || 3306),
     dialect: "mysql",
     logging: false,
-    // dialectOptions: process.env.INSTANCE_UNIX_SOCKET
-    //   ? { socketPath: process.env.INSTANCE_UNIX_SOCKET }
-    //   : {}
+    ...(usingSocket
+      ? {
+          // Cloud SQL por socket Unix
+          dialectOptions: { socketPath: process.env.INSTANCE_UNIX_SOCKET },
+        }
+      : {
+          // Fallback por host/puerto (local o MySQL público/privado)
+          host: process.env.MYSQL_HOST || "127.0.0.1",
+          port: Number(process.env.MYSQL_PORT || 3306),
+        }),
   }
 );
 
@@ -123,40 +128,51 @@ app.get("/api/auth/me", mustAuth, async (req, res) => {
 
 // ============ Registro/Login ============
 app.post("/api/auth/register", async (req, res) => {
-  const { name, phone, email, password } = req.body || {};
-  if (!name || !phone || !email || !password) {
-    return res.status(400).json({ ok: false, error: "missing_fields" });
-  }
-  const exists = await User.findOne({ where: { email } });
-  if (exists) return res.status(409).json({ ok: false, error: "email_in_use" });
+  try {
+    const { name, phone, email, password } = req.body || {};
+    if (!name || !phone || !email || !password) {
+      return res.status(400).json({ ok: false, error: "missing_fields" });
+    }
 
-  const passwordHash = await bcrypt.hash(password, 10);
-  const user = await User.create({ name, phone, email, passwordHash, provider: "local" });
-  const token = signToken(user);
-  res.status(201).json({
-    ok: true,
-    token,
-    user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
-  });
+    const exists = await User.findOne({ where: { email } });
+    if (exists) return res.status(409).json({ ok: false, error: "email_in_use" });
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await User.create({ name, phone, email, passwordHash, provider: "local" });
+    const token = signToken(user);
+    res.status(201).json({
+      ok: true,
+      token,
+      user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
+    });
+  } catch (e) {
+    console.error("❌ /api/auth/register error:", e?.message || e);
+    res.status(500).json({ ok: false, error: "internal_error" });
+  }
 });
 
 app.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) {
-    return res.status(400).json({ ok: false, error: "missing_fields" });
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ ok: false, error: "missing_fields" });
+    }
+    const user = await User.findOne({ where: { email, provider: "local" } });
+    if (!user) return res.status(401).json({ ok: false, error: "invalid_credentials" });
+
+    const ok = await bcrypt.compare(password, user.passwordHash || "");
+    if (!ok) return res.status(401).json({ ok: false, error: "invalid_credentials" });
+
+    const token = signToken(user);
+    res.json({
+      ok: true,
+      token,
+      user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
+    });
+  } catch (e) {
+    console.error("❌ /api/auth/login error:", e?.message || e);
+    res.status(500).json({ ok: false, error: "internal_error" });
   }
-  const user = await User.findOne({ where: { email, provider: "local" } });
-  if (!user) return res.status(401).json({ ok: false, error: "invalid_credentials" });
-
-  const ok = await bcrypt.compare(password, user.passwordHash || "");
-  if (!ok) return res.status(401).json({ ok: false, error: "invalid_credentials" });
-
-  const token = signToken(user);
-  res.json({
-    ok: true,
-    token,
-    user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
-  });
 });
 
 // ============ Google ============
