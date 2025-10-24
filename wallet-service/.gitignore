@@ -1,0 +1,30 @@
+Dependencias de Node
+
+/node_modules
+/npm-debug.log
+/yarn-error.log
+
+Logs y Cache
+
+logs
+.log
+npm-debug.log
+.npm
+.eslintcache
+
+Entorno y Configuración
+
+¡IMPORTANTE! NUNCA subir archivos de variables de entorno con secretos
+
+.env
+.env.*
+
+Artefactos de Build y Temporales
+
+/dist
+/build
+/tmp
+
+Otros
+
+.DS_Store
