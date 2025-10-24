@@ -165,13 +165,16 @@
   </div>
 
   <script>
-    // =================== PON AQUÍ LA URL PÚBLICA DE TU BACKEND ===================
-    // EJ.: window.API_BASE = "https://mi-backend-abc123-uc.a.run.app";
-    // EJ.: window.API_BASE = "https://mi-gateway-xyz.a.gateway.dev";
-    window.API_BASE = "https://tiendas-comproya-942623223069.us-central1.run.app";
-    const API = `${window.API_BASE}/api`;
+    // =================== URLs POR MICROSERVICIO ===================
+    // Pega aquí las URLs de Cloud Run:
+    const AUTH_BASE    = "https://auth-service-942623223069.us-central1.run.app";     // <-- tu auth-service
+    const CATALOG_BASE = "https://catalogo-service-942623223069.us-central1.run.app";   // <-- tu catalog-service
 
-    /* ==================== AUTH (JWT + Google) ==================== */
+    // helpers para componer rutas
+    const AUTH_API    = `${AUTH_BASE}/api/auth`;
+    const CATALOG_API = `${CATALOG_BASE}/api`;
+
+    // ==================== AUTH (JWT + Google) ====================
     const TOKEN_KEY = "jwt";
     const saveToken = (t) => localStorage.setItem(TOKEN_KEY, t);
     const getToken  = () => localStorage.getItem(TOKEN_KEY) || "";
@@ -206,7 +209,7 @@
       const password = document.getElementById("password").value;
       if(!email || !password){ alert("Ingresa correo y contraseña"); return; }
       try{
-        const res = await fetch(`${API}/auth/login`, {
+        const res = await fetch(`${AUTH_API}/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password })
@@ -232,7 +235,7 @@
       const password = document.getElementById("regPassword").value;
       if(!name || !phone || !email || !password){ alert("Completa todos los campos"); return; }
       try{
-        const res = await fetch(`${API}/auth/register`, {
+        const res = await fetch(`${AUTH_API}/register`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, phone, email, password })
@@ -253,13 +256,12 @@
       }
     }
 
-    // Google One Tap / Button -> pega al backend también
     function initGoogleButtons(){
       const clientId = window.GOOGLE_CLIENT_ID || "";
       if(!clientId || !window.google?.accounts?.id) return;
 
       const callback = (resp) => {
-        fetch(`${API}/auth/google`, {
+        fetch(`${AUTH_API}/google`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id_token: resp.credential })
@@ -288,7 +290,7 @@
       const manageLink = document.getElementById("manageProductLink");
       const authBox = document.getElementById("authBox");
       try {
-        const res = await fetch(`${API}/auth/me`, { headers: authHeaders() });
+        const res = await fetch(`${AUTH_API}/me`, { headers: authHeaders() });
         const me = await res.json().catch(()=> ({}));
 
         if (me?.ok && me.user) {
@@ -311,16 +313,16 @@
     }
 
     async function logout() {
-      clearToken(); // basta con limpiar el JWT
+      clearToken();
       await refreshAuthUI();
     }
 
-    /* ==================== CATÁLOGO ==================== */
+    // ==================== CATÁLOGO ====================
     const fmt = (n) => Number(n || 0).toLocaleString("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
     let productos = [];
 
     async function cargarProductos() {
-      const res = await fetch(`${API}/catalog`);
+      const res = await fetch(`${CATALOG_API}/catalog`);
       if (!res.ok) {
         console.error("Error cargando productos:", await res.text());
         alert("No se pudo cargar el catálogo");
@@ -335,9 +337,10 @@
       container.innerHTML = lista.map(p => {
         let imgUrl = "";
         if (String(p.imagen || "").startsWith("/uploads")) {
-          imgUrl = `${window.API_BASE}${p.imagen}`;
+          // imágenes servidas por el microservicio de catálogo
+          imgUrl = `${CATALOG_BASE}${p.imagen}`;
         } else if (p.imagen) {
-          imgUrl = `${API}/catalog${p.imagen}`;
+          imgUrl = `${CATALOG_API}/catalog${p.imagen}`;
         } else {
           imgUrl = "https://via.placeholder.com/600x400?text=Producto";
         }
@@ -377,7 +380,7 @@
       mostrarProductos(filtrados);
     }
 
-    /* ==================== CARRITO (localstorage) ==================== */
+    // ==================== CARRITO (localstorage) ====================
     let carrito = JSON.parse(localStorage.getItem("carrito")) || [];
 
     function agregarAlCarrito(id, nombre, precio, imagen) {
@@ -443,7 +446,7 @@
     async function finalizarCompra() {
       if (carrito.length === 0) return alert("Tu carrito está vacío");
 
-      const me = await fetch(`${API}/auth/me`, { headers: authHeaders() }).then(r => r.json()).catch(()=> ({}));
+      const me = await fetch(`${AUTH_API}/me`, { headers: authHeaders() }).then(r => r.json()).catch(()=> ({}));
       if (!(me?.ok)) { openLogin(); return; }
 
       const total = carrito.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
