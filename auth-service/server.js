@@ -2,7 +2,6 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
@@ -11,17 +10,19 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 
-// ============ ENV & PATH ============
+// ====== ENV solo en local (Cloud Run define K_SERVICE) ======
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, ".env") });
+if (!process.env.K_SERVICE) {
+  dotenv.config({ path: path.resolve(__dirname, ".env") });
+}
 
-// ============ APP ============
+// ====== APP ======
 const app = express();
 
-// ============ CORS ============
+// CORS: solo host (sin path)
 const ALLOWED_ORIGINS = [
   "https://storage.googleapis.com",
-  // "https://tu-dominio.com",
+  // agrega tu dominio de front si aplica
 ];
 
 app.use((req, res, next) => {
@@ -29,29 +30,26 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // health/curl sin Origin
-      return cb(null, ALLOWED_ORIGINS.includes(origin));
-    },
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: false,
-    maxAge: 86400,
-  })
-);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    cb(null, ALLOWED_ORIGINS.includes(origin));
+  },
+  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"],
+  credentials: false,
+  maxAge: 86400
+}));
 
 app.use(express.json());
 app.use(morgan("dev"));
 
-// ============ DB ============
+// ====== DB (Cloud SQL socket si existe) ======
 const usingSocket = !!process.env.INSTANCE_UNIX_SOCKET;
-
 const sequelize = new Sequelize(
   process.env.MYSQL_DATABASE,   // p.ej. "proyecto"
   process.env.MYSQL_USER,       // p.ej. "root"
-  process.env.MYSQL_PASSWORD,   // p.ej. "5n$+|jd0+\\m%yZeU"
+  process.env.MYSQL_PASSWORD,   // p.ej. "5n$+|jd0+\\m%yZeU" (en env)
   {
     dialect: "mysql",
     logging: false,
@@ -61,113 +59,98 @@ const sequelize = new Sequelize(
   }
 );
 
-const User = sequelize.define(
-  "User",
-  {
-    id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
-    name: { type: DataTypes.STRING(120), allowNull: false },
-    phone: { type: DataTypes.STRING(30), allowNull: false },
-    email: { type: DataTypes.STRING(160), allowNull: false, unique: true },
-    passwordHash: { type: DataTypes.STRING(200), allowNull: true },
-    provider: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "local" },
-    googleId: { type: DataTypes.STRING(64), allowNull: true },
-  },
-  { tableName: "users" }
-);
+const User = sequelize.define("User", {
+  id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+  name: { type: DataTypes.STRING(120), allowNull: false },
+  phone: { type: DataTypes.STRING(30), allowNull: false },
+  email: { type: DataTypes.STRING(160), allowNull: false, unique: true },
+  passwordHash: { type: DataTypes.STRING(200), allowNull: true },
+  provider: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "local" },
+  googleId: { type: DataTypes.STRING(64), allowNull: true },
+}, { tableName: "users" });
 
-// ============ JWT ============
+// ====== JWT ======
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
-const signToken = (u) =>
-  jwt.sign({ sub: u.id, email: u.email, name: u.name }, JWT_SECRET, { expiresIn: "2h" });
+const signToken = (u) => jwt.sign({ sub: u.id, email: u.email, name: u.name }, JWT_SECRET, { expiresIn: "2h" });
 
 const mustAuth = (req, res, next) => {
   const h = req.header("Authorization");
-  if (!h || !h.startsWith("Bearer ")) {
-    return res.status(401).json({ ok: false, error: "no_token" });
-  }
-  try {
-    req.user = jwt.verify(h.slice(7), JWT_SECRET);
-    next();
-  } catch {
-    return res.status(401).json({ ok: false, error: "invalid_token" });
-  }
+  if (!h || !h.startsWith("Bearer ")) return res.status(401).json({ ok:false, error:"no_token" });
+  try { req.user = jwt.verify(h.slice(7), JWT_SECRET); next(); }
+  catch { return res.status(401).json({ ok:false, error:"invalid_token" }); }
 };
 
-// ============ Health ============
+// ====== Health ======
 app.get("/", (_req, res) => res.status(200).send("ok"));
-app.get("/health", (_req, res) => res.json({ ok: true, via: "/health" }));
-app.get("/api/auth/health", (_req, res) => res.json({ ok: true, via: "/api/auth/health" }));
+app.get("/health", (_req, res) => res.json({ ok:true, via:"/health" }));
+app.get("/api/auth/health", (_req, res) => res.json({ ok:true, via:"/api/auth/health" }));
 
-// ============ ME ============
-app.get("/me", mustAuth, async (req, res) => {
-  const u = await User.findByPk(req.user.sub, { attributes: ["id", "name", "phone", "email", "provider"] });
-  if (!u) return res.status(404).json({ ok: false, error: "user_not_found" });
-  res.json({ ok: true, user: u, via: "/me" });
+// ====== Estado de DB (para bloquear rutas si DB no listo) ======
+let dbReady = false;
+const ensureDb = (req, res, next) => {
+  if (!dbReady) return res.status(503).json({ ok:false, error:"db_not_ready" });
+  next();
+};
+
+// ====== ME ======
+app.get("/me", mustAuth, ensureDb, async (req, res) => {
+  const u = await User.findByPk(req.user.sub, { attributes:["id","name","phone","email","provider"] });
+  if (!u) return res.status(404).json({ ok:false, error:"user_not_found" });
+  res.json({ ok:true, user:u, via:"/me" });
+});
+app.get("/api/auth/me", mustAuth, ensureDb, async (req, res) => {
+  const u = await User.findByPk(req.user.sub, { attributes:["id","name","phone","email","provider"] });
+  if (!u) return res.status(404).json({ ok:false, error:"user_not_found" });
+  res.json({ ok:true, user:u, via:"/api/auth/me" });
 });
 
-app.get("/api/auth/me", mustAuth, async (req, res) => {
-  const u = await User.findByPk(req.user.sub, { attributes: ["id", "name", "phone", "email", "provider"] });
-  if (!u) return res.status(404).json({ ok: false, error: "user_not_found" });
-  res.json({ ok: true, user: u, via: "/api/auth/me" });
-});
-
-// ============ Registro/Login ============
-app.post("/api/auth/register", async (req, res) => {
+// ====== Registro/Login ======
+app.post("/api/auth/register", ensureDb, async (req, res) => {
   try {
     const { name, phone, email, password } = req.body || {};
     if (!name || !phone || !email || !password) {
-      return res.status(400).json({ ok: false, error: "missing_fields" });
+      return res.status(400).json({ ok:false, error:"missing_fields" });
     }
-
     const exists = await User.findOne({ where: { email } });
-    if (exists) return res.status(409).json({ ok: false, error: "email_in_use" });
+    if (exists) return res.status(409).json({ ok:false, error:"email_in_use" });
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, phone, email, passwordHash, provider: "local" });
+    const user = await User.create({ name, phone, email, passwordHash, provider:"local" });
     const token = signToken(user);
-    res.status(201).json({
-      ok: true,
-      token,
-      user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
-    });
+    res.status(201).json({ ok:true, token, user: { id:user.id, name:user.name, phone:user.phone, email:user.email } });
   } catch (e) {
     console.error("❌ /api/auth/register error:", e?.message || e);
-    res.status(500).json({ ok: false, error: "internal_error" });
+    res.status(500).json({ ok:false, error:"internal_error" });
   }
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", ensureDb, async (req, res) => {
   try {
     const { email, password } = req.body || {};
-    if (!email || !password) {
-      return res.status(400).json({ ok: false, error: "missing_fields" });
-    }
-    const user = await User.findOne({ where: { email, provider: "local" } });
-    if (!user) return res.status(401).json({ ok: false, error: "invalid_credentials" });
+    if (!email || !password) return res.status(400).json({ ok:false, error:"missing_fields" });
+
+    const user = await User.findOne({ where: { email, provider:"local" } });
+    if (!user) return res.status(401).json({ ok:false, error:"invalid_credentials" });
 
     const ok = await bcrypt.compare(password, user.passwordHash || "");
-    if (!ok) return res.status(401).json({ ok: false, error: "invalid_credentials" });
+    if (!ok) return res.status(401).json({ ok:false, error:"invalid_credentials" });
 
     const token = signToken(user);
-    res.json({
-      ok: true,
-      token,
-      user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
-    });
+    res.json({ ok:true, token, user: { id:user.id, name:user.name, phone:user.phone, email:user.email } });
   } catch (e) {
     console.error("❌ /api/auth/login error:", e?.message || e);
-    res.status(500).json({ ok: false, error: "internal_error" });
+    res.status(500).json({ ok:false, error:"internal_error" });
   }
 });
 
-// ============ Google ============
+// ====== Google ======
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
 
-app.post("/api/auth/google", async (req, res) => {
-  if (!googleClient) return res.status(500).json({ ok: false, error: "google_not_configured" });
+app.post("/api/auth/google", ensureDb, async (req, res) => {
+  if (!googleClient) return res.status(500).json({ ok:false, error:"google_not_configured" });
   const { id_token } = req.body || {};
-  if (!id_token) return res.status(400).json({ ok: false, error: "missing_id_token" });
+  if (!id_token) return res.status(400).json({ ok:false, error:"missing_id_token" });
   try {
     const ticket = await googleClient.verifyIdToken({ idToken: id_token, audience: googleClientId });
     const payload = ticket.getPayload();
@@ -176,43 +159,37 @@ app.post("/api/auth/google", async (req, res) => {
     const googleId = payload.sub;
 
     let user = await User.findOne({ where: { email } });
-    if (!user) user = await User.create({ name, phone: "-", email, provider: "google", googleId });
+    if (!user) user = await User.create({ name, phone: "-", email, provider:"google", googleId });
 
     const token = signToken(user);
-    res.json({
-      ok: true,
-      token,
-      user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
-    });
+    res.json({ ok:true, token, user: { id:user.id, name:user.name, phone:user.phone, email:user.email } });
   } catch (e) {
     console.error("❌ /api/auth/google error:", e?.message || e);
-    res.status(401).json({ ok: false, error: "invalid_google_token" });
+    res.status(401).json({ ok:false, error:"invalid_google_token" });
   }
 });
 
-// ============ Start ============
+// ====== Start: escuchar YA y luego init DB en background ======
 const PORT = Number(process.env.PORT || 8080);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🧩 auth-service escuchando en :${PORT}`);
+});
 
-// Arranque ordenado: primero DB (authenticate + sync), luego listen
+// Init DB en background (sin tumbar el contenedor si falla)
 (async () => {
   try {
     await sequelize.authenticate();
     console.log("✅ DB conectada");
-
-    // crea tablas si no existen (no destruye datos). Para dev puedes usar { alter: true }.
     await sequelize.sync();
     console.log("✅ Sequelize sync OK");
-
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🧩 auth-service escuchando en :${PORT}`);
-    });
+    dbReady = true;
   } catch (err) {
     console.error("❌ Error inicializando DB:", err?.message || err);
-    // En Cloud Run conviene salir para que se reinicie el contenedor si no arranca bien
-    process.exit(1);
+    // Mantén el contenedor vivo; health endpoints seguirán respondiendo.
   }
 })();
 
+// Apagado limpio
 process.on("SIGTERM", () => {
   console.log("Recibido SIGTERM, cerrando...");
   process.exit(0);
