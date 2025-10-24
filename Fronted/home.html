@@ -52,7 +52,6 @@
     .checkout-btn { background:#2e7d32; color:#fff; padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-weight:bold; }
     .checkout-btn:hover { background:#1b5e20; }
 
-    /* Modal Login/Registro */
     .modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); align-items:center; justify-content:center; z-index:20; }
     .modal.open { display:flex; }
     .modal-card { width:95%; max-width:420px; background:#fff; border-radius:12px; box-shadow:0 10px 25px rgba(0,0,0,.15); padding:20px; }
@@ -64,9 +63,8 @@
     #googleAreaLogin, #googleAreaRegister { display:inline-block; }
   </style>
 
-  <!-- Google Identity (si pones tu client id, aparecerán los botones) -->
+  <!-- Google Identity -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <!-- Si quieres, setea aquí tu client id y no tocas el JS -->
   <script>window.GOOGLE_CLIENT_ID = "TU_CLIENT_ID_DE_GOOGLE.apps.googleusercontent.com";</script>
 </head>
 <body>
@@ -82,13 +80,11 @@
     </nav>
   </header>
 
-  <!-- Buscador -->
   <div class="search-bar">
     <input type="text" id="searchInput" placeholder="Buscar productos...">
     <button onclick="buscarProductos()">Buscar</button>
   </div>
 
-  <!-- Categorías -->
   <div class="categories">
     <button class="category-btn" onclick="filtrarCategoria('Todos')">Todos</button>
     <button class="category-btn" onclick="filtrarCategoria('Electrodomésticos')">Electrodomésticos</button>
@@ -97,10 +93,8 @@
     <button class="category-btn" onclick="filtrarCategoria('Ropa')">Ropa</button>
   </div>
 
-  <!-- Productos -->
   <div class="product-grid" id="productContainer"></div>
 
-  <!-- 🛒 Carrito lateral -->
   <div id="cartSidebar" class="cart-sidebar">
     <div class="cart-header">
       <h2>🛒 Mi Carrito</h2>
@@ -113,7 +107,6 @@
     </div>
   </div>
 
-  <!-- 🛒 Icono flotante -->
   <div class="cart-icon" onclick="abrirCarrito()">🛒</div>
 
   <!-- Modal Login + Registro -->
@@ -127,7 +120,7 @@
         <button class="btn btn-close" onclick="closeLogin()">Cerrar</button>
       </div>
 
-      <!-- FORM LOGIN -->
+      <!-- LOGIN -->
       <div id="loginForm">
         <div class="field">
           <label for="email">Correo</label>
@@ -143,7 +136,7 @@
         </div>
       </div>
 
-      <!-- FORM REGISTRO -->
+      <!-- REGISTRO -->
       <div id="registerForm" style="display:none">
         <div class="field">
           <label for="regName">Nombre</label>
@@ -172,7 +165,11 @@
   </div>
 
   <script>
-    const API = "/api";
+    // =================== PON AQUÍ LA URL PÚBLICA DE TU BACKEND ===================
+    // EJ.: window.API_BASE = "https://mi-backend-abc123-uc.a.run.app";
+    // EJ.: window.API_BASE = "https://mi-gateway-xyz.a.gateway.dev";
+    window.API_BASE = "https://tiendas-comproya-942623223069.us-central1.run.app";
+    const API = `${window.API_BASE}/api`;
 
     /* ==================== AUTH (JWT + Google) ==================== */
     const TOKEN_KEY = "jwt";
@@ -209,8 +206,7 @@
       const password = document.getElementById("password").value;
       if(!email || !password){ alert("Ingresa correo y contraseña"); return; }
       try{
-        // JWT vía auth-service
-        const res = await fetch("/api/auth/login", {
+        const res = await fetch(`${API}/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password })
@@ -221,22 +217,11 @@
           closeLogin();
           await refreshAuthUI();
         }else{
-          // fallback: tu login local por cookie, si lo usas aún
-          const r2 = await fetch("/auth/local/login", {
-            method: "POST", headers: { "Content-Type":"application/json" },
-            credentials: "include", body: JSON.stringify({ email, password })
-          });
-          const d2 = await r2.json().catch(()=> ({}));
-          if(r2.ok){
-            closeLogin();
-            await refreshAuthUI();
-          } else {
-            alert(data.error || d2.message || "Login fallido");
-          }
+          alert(data.error || "Login fallido");
         }
       }catch(err){
         console.error(err);
-        alert("Error en login local");
+        alert("Error en login");
       }
     }
 
@@ -247,13 +232,15 @@
       const password = document.getElementById("regPassword").value;
       if(!name || !phone || !email || !password){ alert("Completa todos los campos"); return; }
       try{
-        const res = await fetch("/api/auth/register", {
+        const res = await fetch(`${API}/auth/register`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, phone, email, password })
         });
-        const data = await res.json().catch(()=> ({}));
-        if(res.ok && data.token){
+        const text = await res.text();
+        if(!res.ok) throw new Error(`Register ${res.status}: ${text}`);
+        const data = JSON.parse(text);
+        if(data.token){
           saveToken(data.token);
           closeLogin();
           await refreshAuthUI();
@@ -262,17 +249,17 @@
         }
       }catch(err){
         console.error(err);
-        alert("Error registrando usuario");
+        alert(err.message || "Error registrando usuario");
       }
     }
 
-    // Google One Tap / Button
+    // Google One Tap / Button -> pega al backend también
     function initGoogleButtons(){
       const clientId = window.GOOGLE_CLIENT_ID || "";
       if(!clientId || !window.google?.accounts?.id) return;
 
       const callback = (resp) => {
-        fetch("/api/auth/google", {
+        fetch(`${API}/auth/google`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id_token: resp.credential })
@@ -301,18 +288,8 @@
       const manageLink = document.getElementById("manageProductLink");
       const authBox = document.getElementById("authBox");
       try {
-        // 1) Primero intenta /api/auth/me (JWT)
-        let res = await fetch("/api/auth/me", { headers: authHeaders() });
-        let me = await res.json().catch(()=> ({}));
-
-        // 2) Si no hay JWT válido, intenta cookie /auth/me (tu flujo antiguo)
-        if (!me?.ok && !me?.user && !me?.authenticated) {
-          const r2 = await fetch("/auth/me", { credentials:"include" });
-          const me2 = await r2.json().catch(()=> ({}));
-          if (me2?.authenticated) {
-            me = { ok:true, user: { email: me2.email, name: me2.name, picture: me2.picture, role: me2.role } };
-          }
-        }
+        const res = await fetch(`${API}/auth/me`, { headers: authHeaders() });
+        const me = await res.json().catch(()=> ({}));
 
         if (me?.ok && me.user) {
           addLink.style.display = "none";
@@ -334,8 +311,7 @@
     }
 
     async function logout() {
-      clearToken(); // limpia JWT
-      await fetch("/auth/logout", { method: "POST", credentials: "include" }).catch(()=>{});
+      clearToken(); // basta con limpiar el JWT
       await refreshAuthUI();
     }
 
@@ -357,9 +333,14 @@
     function mostrarProductos(lista) {
       const container = document.getElementById("productContainer");
       container.innerHTML = lista.map(p => {
-        const imgUrl = String(p.imagen || "").startsWith("/uploads")
-          ? p.imagen
-          : `/api/catalog${p.imagen || ""}`;
+        let imgUrl = "";
+        if (String(p.imagen || "").startsWith("/uploads")) {
+          imgUrl = `${window.API_BASE}${p.imagen}`;
+        } else if (p.imagen) {
+          imgUrl = `${API}/catalog${p.imagen}`;
+        } else {
+          imgUrl = "https://via.placeholder.com/600x400?text=Producto";
+        }
 
         const safeName = String(p.nom_producto || p.name || "").replace(/'/g,"&#39;");
         const price = p.pre_producto ?? p.price ?? 0;
@@ -462,15 +443,10 @@
     async function finalizarCompra() {
       if (carrito.length === 0) return alert("Tu carrito está vacío");
 
-      // Necesita usuario autenticado (JWT o cookie)
-      let me = await fetch("/api/auth/me", { headers: authHeaders() }).then(r => r.json()).catch(()=> ({}));
-      if (!me?.ok) {
-        const me2 = await fetch("/auth/me", { credentials: "include" }).then(r=>r.json()).catch(()=> ({}));
-        if (!me2?.authenticated) { openLogin(); return; }
-      }
+      const me = await fetch(`${API}/auth/me`, { headers: authHeaders() }).then(r => r.json()).catch(()=> ({}));
+      if (!(me?.ok)) { openLogin(); return; }
 
       const total = carrito.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
-      // (Aquí podrías llamar a /api/cart/items y /api/cart/apply-coupon, etc.)
       alert("✅ Simulación: compra por " + fmt(total));
     }
 
