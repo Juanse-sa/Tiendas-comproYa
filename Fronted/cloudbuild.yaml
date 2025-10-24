@@ -1,0 +1,32 @@
+# Revisa este archivo y reemplaza [REGION] y [REPO_NAME] con tus valores.
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  id: Build-Image
+  args:
+  - 'build'
+  - '-t'
+  - '[REGION]-docker.pkg.dev/$PROJECT_ID/[REPO_NAME]/mi-frontend:$COMMIT_SHA'
+  - '.'
+
+- name: 'gcr.io/cloud-builders/docker'
+  id: Push-Image
+  args:
+  - 'push'
+  - '[REGION]-docker.pkg.dev/$PROJECT_ID/[REPO_NAME]/mi-frontend:$COMMIT_SHA'
+
+- name: 'gcr.io/google.com/cloudsdk/cloud-sdk'
+  id: Deploy-to-CloudRun
+  args:
+  - 'gcloud'
+  - 'run'
+  - 'deploy'
+  - 'mi-frontend-service'
+  - '--image'
+  - '[REGION]-docker.pkg.dev/$PROJECT_ID/[REPO_NAME]/mi-frontend:$COMMIT_SHA'
+  - '--region'
+  - '[REGION]'
+  - '--platform'
+  - 'managed'
+  - '--allow-unauthenticated'
+  - '--project'
+  - '$PROJECT_ID'
