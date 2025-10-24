@@ -13,43 +13,37 @@ import { OAuth2Client } from "google-auth-library";
 
 // ============ ENV & PATH ============
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// En Cloud Run usa env vars del servicio; .env es opcional en local
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
 // ============ APP ============
 const app = express();
 
-// ============ CORS (debe ir antes de TODAS las rutas) ============
-// Importante: el ORIGIN es "scheme + host" (sin path). Tu front viene de storage.googleapis.com
+// ============ CORS ============
 const ALLOWED_ORIGINS = [
   "https://storage.googleapis.com",
-  // Agrega aquí otro dominio si sirves el front desde otro host:
   // "https://tu-dominio.com"
 ];
 
-// Header útil para depurar
 app.use((req, res, next) => {
   res.setHeader("X-Service", "auth-service");
   next();
 });
 
-// CORS dinámico por Origin
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Sin origin (curl / health checks) -> permitir
       if (!origin) return callback(null, true);
       return callback(null, ALLOWED_ORIGINS.includes(origin));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: false,
-    maxAge: 86400, // cache preflight 1 día
+    maxAge: 86400,
   })
 );
 
-// Preflight explícito (opcional, pero ayuda con algunos proxies)
-app.options("*", (req, res) => {
+// >>>>>>>>>>> CAMBIO CLAVE AQUÍ (no usar "*")
+app.options("(.*)", (req, res) => {
   const origin = req.headers.origin;
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -74,10 +68,6 @@ const sequelize = new Sequelize(
     port: Number(process.env.MYSQL_PORT || 3306),
     dialect: "mysql",
     logging: false,
-    // Si usas Cloud SQL por socket, define INSTANCE_UNIX_SOCKET:
-    // dialectOptions: process.env.INSTANCE_UNIX_SOCKET
-    //   ? { socketPath: process.env.INSTANCE_UNIX_SOCKET }
-    //   : {}
   }
 );
 
@@ -194,7 +184,6 @@ app.post("/api/auth/google", async (req, res) => {
 
 // ============ Start ============
 const PORT = Number(process.env.PORT || 8080);
-
 app.listen(PORT, "0.0.0.0", async () => {
   console.log(`🧩 auth-service escuchando en :${PORT}`);
   try {
@@ -209,7 +198,6 @@ app.listen(PORT, "0.0.0.0", async () => {
   }
 });
 
-// Apagado limpio
 process.on("SIGTERM", () => {
   console.log("Recibido SIGTERM, cerrando...");
   process.exit(0);
