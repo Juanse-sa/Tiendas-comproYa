@@ -18,41 +18,34 @@ dotenv.config({ path: path.resolve(__dirname, ".env") });
 // ============ APP ============
 const app = express();
 
-// ============ CORS ============
+// ============ CORS (antes de rutas) ============
 const ALLOWED_ORIGINS = [
   "https://storage.googleapis.com",
+  // agrega otros dominios de front si los tienes, solo host (sin path):
   // "https://tu-dominio.com"
 ];
 
+// marca el servicio (útil en logs/inspección)
 app.use((req, res, next) => {
   res.setHeader("X-Service", "auth-service");
   next();
 });
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      return callback(null, ALLOWED_ORIGINS.includes(origin));
-    },
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: false,
-    maxAge: 86400,
-  })
-);
+// configuración CORS global
+const corsOptions = {
+  origin: (origin, cb) => {
+    // sin Origin (curl/health) -> permitir
+    if (!origin) return cb(null, true);
+    return cb(null, ALLOWED_ORIGINS.includes(origin));
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false,
+  maxAge: 86400, // cachea preflight 1 día
+};
 
-// >>>>>>>>>>> CAMBIO CLAVE AQUÍ (no usar "*")
-app.options("(.*)", (req, res) => {
-  const origin = req.headers.origin;
-  if (ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-  res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.status(204).send("");
-});
+// Aplica CORS a TODAS las rutas y métodos, incluido OPTIONS
+app.use(cors(corsOptions));
 
 // ============ BODY & LOGS ============
 app.use(express.json());
@@ -68,6 +61,9 @@ const sequelize = new Sequelize(
     port: Number(process.env.MYSQL_PORT || 3306),
     dialect: "mysql",
     logging: false,
+    // dialectOptions: process.env.INSTANCE_UNIX_SOCKET
+    //   ? { socketPath: process.env.INSTANCE_UNIX_SOCKET }
+    //   : {}
   }
 );
 
@@ -137,9 +133,11 @@ app.post("/api/auth/register", async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   const user = await User.create({ name, phone, email, passwordHash, provider: "local" });
   const token = signToken(user);
-  res
-    .status(201)
-    .json({ ok: true, token, user: { id: user.id, name: user.name, phone: user.phone, email: user.email } });
+  res.status(201).json({
+    ok: true,
+    token,
+    user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
+  });
 });
 
 app.post("/api/auth/login", async (req, res) => {
@@ -154,7 +152,11 @@ app.post("/api/auth/login", async (req, res) => {
   if (!ok) return res.status(401).json({ ok: false, error: "invalid_credentials" });
 
   const token = signToken(user);
-  res.json({ ok: true, token, user: { id: user.id, name: user.name, phone: user.phone, email: user.email } });
+  res.json({
+    ok: true,
+    token,
+    user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
+  });
 });
 
 // ============ Google ============
@@ -176,7 +178,11 @@ app.post("/api/auth/google", async (req, res) => {
     if (!user) user = await User.create({ name, phone: "-", email, provider: "google", googleId });
 
     const token = signToken(user);
-    res.json({ ok: true, token, user: { id: user.id, name: user.name, phone: user.phone, email: user.email } });
+    res.json({
+      ok: true,
+      token,
+      user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
+    });
   } catch {
     res.status(401).json({ ok: false, error: "invalid_google_token" });
   }
