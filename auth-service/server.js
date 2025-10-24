@@ -18,12 +18,11 @@ dotenv.config({ path: path.resolve(__dirname, ".env") });
 // ============ APP ============
 const app = express();
 
-// ============ CORS (antes de rutas) ============
-// IMPORTANTE: origin es solo esquema+host (sin paths)
+// ============ CORS ============
 const ALLOWED_ORIGINS = [
   "https://storage.googleapis.com",
-  // agrega aquí otros orígenes válidos de tu front si los tuvieras:
-  // "https://tu-dominio.com",
+  // Agrega otros dominios válidos de tu frontend aquí:
+  // "https://tudominio.com"
 ];
 
 app.use((req, res, next) => {
@@ -34,7 +33,7 @@ app.use((req, res, next) => {
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // curl/health sin Origin
+      if (!origin) return cb(null, true); // para health/curl
       return cb(null, ALLOWED_ORIGINS.includes(origin));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -48,8 +47,7 @@ app.use(
 app.use(express.json());
 app.use(morgan("dev"));
 
-// ============ DB (Cloud SQL socket si existe) ============
-// Define INSTANCE_UNIX_SOCKET="/cloudsql/PROJECT:REGION:INSTANCE" en Cloud Run
+// ============ DB ============
 const usingSocket = !!process.env.INSTANCE_UNIX_SOCKET;
 
 const sequelize = new Sequelize(
@@ -61,11 +59,11 @@ const sequelize = new Sequelize(
     logging: false,
     ...(usingSocket
       ? {
-          // Cloud SQL por socket Unix
-          dialectOptions: { socketPath: process.env.INSTANCE_UNIX_SOCKET },
+          dialectOptions: {
+            socketPath: process.env.INSTANCE_UNIX_SOCKET,
+          },
         }
       : {
-          // Fallback por host/puerto (local o MySQL público/privado)
           host: process.env.MYSQL_HOST || "127.0.0.1",
           port: Number(process.env.MYSQL_PORT || 3306),
         }),
@@ -126,7 +124,7 @@ app.get("/api/auth/me", mustAuth, async (req, res) => {
   res.json({ ok: true, user: u, via: "/api/auth/me" });
 });
 
-// ============ Registro/Login ============
+// ============ Registro ============
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { name, phone, email, password } = req.body || {};
@@ -151,6 +149,7 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
+// ============ Login ============
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -199,7 +198,8 @@ app.post("/api/auth/google", async (req, res) => {
       token,
       user: { id: user.id, name: user.name, phone: user.phone, email: user.email },
     });
-  } catch {
+  } catch (e) {
+    console.error("❌ /api/auth/google error:", e?.message || e);
     res.status(401).json({ ok: false, error: "invalid_google_token" });
   }
 });
