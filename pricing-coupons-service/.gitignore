@@ -1,0 +1,20 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+
+# Env / secretos
+.env
+.env.*
+!.env.example
+
+# Logs / caches
+*.log
+logs/
+coverage/
+.cache/
+tmp/
+dist/
+build/
