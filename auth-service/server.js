@@ -8,6 +8,48 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // En Cloud Run usa env vars del servicio; no dependas de ../.env
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
+// ---- CORS (poner esto ARRIBA, antes de tus rutas) ----
+import cors from "cors";
+
+// Orígenes permitidos (tu front sale desde storage.googleapis.com)
+const ALLOWED_ORIGINS = [
+  "https://storage.googleapis.com",
+  // si usas otro dominio para el front, agrégalo aquí:
+  // "https://tu-dominio.com"
+  "https://storage.googleapis.com/red-bruin-469518-f3-frontend/home%20(1).html"
+];
+
+app.use((req, res, next) => {
+  // útil para depurar en Cloud Run
+  res.setHeader("X-Service", "auth-service"); 
+  next();
+});
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // peticiones sin "origin" (curl/health) también se permiten
+    if (!origin) return cb(null, true);
+    return cb(null, ALLOWED_ORIGINS.includes(origin));
+  },
+  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"],
+  // NO uses credentials a menos que envíes cookies (no es tu caso)
+  credentials: false,
+  maxAge: 86400, // cachea preflight 1 día
+}));
+
+// Responder preflight explícitamente
+app.options("*", (req, res) => {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.status(204).send("");
+});
+
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
