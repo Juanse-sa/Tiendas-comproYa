@@ -1,27 +1,47 @@
-// .env raíz
-import path from "path"; import { fileURLToPath } from "url"; import dotenv from "dotenv";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
+// server.js (ESM)
+import dotenv from "dotenv";
+import express from "express";
+import cors from "cors";
+import morgan from "morgan";
 
-import express from "express"; import cors from "cors"; import morgan from "morgan";
-const app = express(); app.use(cors()); app.use(express.json()); app.use(morgan("dev"));
+// Carga variables de entorno (si existe .env en el root del proyecto)
+dotenv.config();
 
-const PRICES = new Map([["SKU-001", 100], ["SKU-002", 50]]);
-const COUPONS = { SAVE10: { type: "percent", value: 10, active: true } };
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(morgan("dev"));
 
+// ====== Mock data ======
+const PRICES = new Map([
+  ["SKU-001", 100],
+  ["SKU-002", 50],
+]);
+
+const COUPONS = {
+  SAVE10: { type: "percent", value: 10, active: true },
+};
+
+// ====== Endpoints ======
 app.get("/api/pricing/price", (req, res) => {
-  const p = PRICES.get(req.query.sku);
-  if (!p) return res.status(404).json({ ok:false, reason:"no_price" });
-  res.json({ ok:true, sku: req.query.sku, price: p });
+  const sku = (req.query.sku || "").toString();
+  const p = PRICES.get(sku);
+  if (p == null) return res.status(404).json({ ok: false, reason: "no_price" });
+  res.json({ ok: true, sku, price: p });
 });
 
 app.post("/api/pricing/coupons/validate", (req, res) => {
-  const { code, itemsTotal } = req.body;
+  const { code, itemsTotal } = req.body || {};
   const c = COUPONS[code];
-  if (!c || !c.active) return res.json({ valid:false, reason:"invalid" });
-  const discount = (itemsTotal * c.value) / 100;
-  res.json({ valid:true, discount, final: Math.max(0, itemsTotal - discount) });
+  if (!c || !c.active) return res.json({ valid: false, reason: "invalid" });
+
+  const total = Number(itemsTotal || 0);
+  const discount = (total * c.value) / 100;
+  res.json({ valid: true, discount, final: Math.max(0, total - discount) });
 });
 
-const PORT = Number(process.env.PRICING_PORT || 4003);
-app.listen(PORT, () => console.log(`💰 pricing-coupons-service en :${PORT}`));
+// IMPORTANTE: escuchar en PORT (Cloud Run usa PORT=8080)
+const PORT = Number(process.env.PORT || process.env.PRICING_PORT || 4003);
+app.listen(PORT, () => {
+  console.log(`💰 pricing-coupons-service escuchando en :${PORT}`);
+});
