@@ -1,34 +1,48 @@
-// Cargar .env de la raíz
+// inventory-service/server.js
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
 import { Sequelize, DataTypes } from "sequelize";
 
+// === ENV solo en local (Cloud Run define K_SERVICE) ===
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+if (!process.env.K_SERVICE) {
+  // en local, carga .env de la carpeta del servicio o raíz como prefieras
+  dotenv.config({ path: path.resolve(__dirname, ".env") });
+  // si tu .env está en la raíz del monorepo:
+  // dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(morgan("dev"));
 
-/** Conexión a MySQL (misma BD retailBD que ya creaste) */
+// === DB: usa socket si INSTANCE_UNIX_SOCKET está definido ===
+const usingSocket = !!process.env.INSTANCE_UNIX_SOCKET;
+
 const sequelize = new Sequelize(
-  process.env.MYSQL_DATABASE,
-  process.env.MYSQL_USER,
-  process.env.MYSQL_PASSWORD,
+  process.env.MYSQL_DATABASE,   // e.g. "proyecto" o "retailBD"
+  process.env.MYSQL_USER,       // e.g. "root" o usuario app
+  process.env.MYSQL_PASSWORD,   // tu contraseña
   {
-    host: process.env.MYSQL_HOST,
-    port: Number(process.env.MYSQL_PORT || 3306),
     dialect: "mysql",
     logging: false,
+    pool: { max: 10, min: 0, acquire: 30000, idle: 10000 },
+    ...(usingSocket
+      ? { dialectOptions: { socketPath: process.env.INSTANCE_UNIX_SOCKET } }
+      : {
+          host: process.env.MYSQL_HOST || "127.0.0.1",
+          port: Number(process.env.MYSQL_PORT || 3306),
+        }),
   }
 );
 
-/** Modelo simple de stock por tienda */
+// === Modelo ===
 const Stock = sequelize.define(
   "Stock",
   {
@@ -41,7 +55,11 @@ const Stock = sequelize.define(
   { tableName: "store_stock" }
 );
 
-/** Semilla rápida para probar */
+// === Rutas ===
+app.get("/api/inventory/health", (_req, res) =>
+  res.json({ ok: true, via: "/api/inventory/health" })
+);
+
 app.post("/api/inventory/seed", async (_req, res) => {
   await Stock.bulkCreate(
     [
@@ -53,7 +71,6 @@ app.post("/api/inventory/seed", async (_req, res) => {
   res.json({ ok: true });
 });
 
-/** Consulta de stock */
 app.get("/api/inventory/stock", async (req, res) => {
   const { store, sku } = req.query;
   const where = {};
@@ -63,7 +80,6 @@ app.get("/api/inventory/stock", async (req, res) => {
   res.json(rows);
 });
 
-/** Reservas (opcional, por si quieres probar checkout luego) */
 app.post("/api/inventory/reservations", async (req, res) => {
   const { store_id, sku, qty } = req.body;
   const row = await Stock.findOne({ where: { store_id, sku } });
@@ -85,17 +101,22 @@ app.post("/api/inventory/confirm", async (req, res) => {
   res.json({ ok: true });
 });
 
-const PORT = Number(process.env.INVENTORY_PORT || 4002);
+// === Cloud Run: escuchar SIEMPRE en process.env.PORT (no 4002) ===
+const PORT = Number(process.env.PORT || 8080);
+
+// Arranca el servidor y luego inicializa DB en background (para no fallar healthcheck)
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🏪 inventory-service escuchando en :${PORT}`);
+});
 
 (async () => {
   try {
     await sequelize.authenticate();
-    await sequelize.sync(); // crea la tabla si no existe
-    app.listen(PORT, () =>
-      console.log(`🏪 inventory-service escuchando en :${PORT}`)
-    );
+    console.log("✅ DB conectada (inventory)");
+    await sequelize.sync();
+    console.log("✅ Sequelize sync OK (inventory)");
   } catch (e) {
-    console.error("❌ Error arrancando inventory:", e.message);
-    process.exit(1);
+    console.error("❌ Error arrancando inventory:", e?.message || e);
+    // NO hacemos process.exit(1) en Cloud Run; deja el servicio arriba para poder inspeccionar /health
   }
 })();
