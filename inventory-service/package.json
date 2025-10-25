@@ -2,7 +2,7 @@
   "name": "inventory-service",
   "version": "1.0.0",
   "description": "",
-  "type": "module",                // <--- AÑADE ESTO
+  "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
