@@ -144,7 +144,7 @@ app.post("/api/auth/login", ensureDb, async (req, res) => {
 });
 
 // ====== Google ======
-const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
+const googleClientId = process.env.GOOGLE_CLIENT_ID || "942623223069-olklkgget61r7fqb6j55af11uc2tleik.apps.googleusercontent.com";
 const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
 
 app.post("/api/auth/google", ensureDb, async (req, res) => {
