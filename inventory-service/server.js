@@ -56,10 +56,13 @@ const Stock = sequelize.define(
 );
 
 // === Rutas ===
+
+// ✅ Health check (para Cloud Run)
 app.get("/api/inventory/health", (_req, res) =>
   res.json({ ok: true, via: "/api/inventory/health" })
 );
 
+// ✅ Cargar datos iniciales de prueba
 app.post("/api/inventory/seed", async (_req, res) => {
   await Stock.bulkCreate(
     [
@@ -71,6 +74,7 @@ app.post("/api/inventory/seed", async (_req, res) => {
   res.json({ ok: true });
 });
 
+// ✅ Consultar inventario (opcionalmente filtrando por store o sku)
 app.get("/api/inventory/stock", async (req, res) => {
   const { store, sku } = req.query;
   const where = {};
@@ -80,6 +84,7 @@ app.get("/api/inventory/stock", async (req, res) => {
   res.json(rows);
 });
 
+// ✅ Reservar stock
 app.post("/api/inventory/reservations", async (req, res) => {
   const { store_id, sku, qty } = req.body;
   const row = await Stock.findOne({ where: { store_id, sku } });
@@ -91,6 +96,7 @@ app.post("/api/inventory/reservations", async (req, res) => {
   res.status(201).json({ ok: true });
 });
 
+// ✅ Confirmar reserva
 app.post("/api/inventory/confirm", async (req, res) => {
   const { store_id, sku, qty } = req.body;
   const row = await Stock.findOne({ where: { store_id, sku } });
@@ -99,6 +105,34 @@ app.post("/api/inventory/confirm", async (req, res) => {
   row.reserved -= qty;
   await row.save();
   res.json({ ok: true });
+});
+
+// 🆕 ✅ Agregar un nuevo producto al inventario
+app.post("/api/inventory/add", async (req, res) => {
+  try {
+    const { store_id, sku, available = 0, reserved = 0 } = req.body;
+
+    if (!store_id || !sku) {
+      return res.status(400).json({
+        ok: false,
+        error: "store_id y sku son obligatorios"
+      });
+    }
+
+    const existing = await Stock.findOne({ where: { store_id, sku } });
+    if (existing) {
+      return res.status(409).json({
+        ok: false,
+        error: "El producto ya existe en esta tienda"
+      });
+    }
+
+    const newItem = await Stock.create({ store_id, sku, available, reserved });
+    res.status(201).json({ ok: true, item: newItem });
+  } catch (err) {
+    console.error("❌ Error agregando producto:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // === Cloud Run: escuchar SIEMPRE en process.env.PORT (no 4002) ===
