@@ -6,7 +6,7 @@ steps:
   - 'build'
   - '-t'
   - '[REGION]-docker.pkg.dev/$PROJECT_ID/[REPO_NAME]/mi-frontend:$COMMIT_SHA'
-  - './Fronted'
+  - '.'
 
 - name: 'gcr.io/cloud-builders/docker'
   id: Push-Image
